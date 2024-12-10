@@ -250,7 +250,7 @@ final class Http1Driver extends AbstractHttpDriver
                     throw new ClientException($this->client, "Bad Request: multiple host headers", HttpStatus::BAD_REQUEST);
                 }
 
-                if (!\preg_match("#^([A-Z\d._\-]+|\[[\d:]+])(?::([1-9]\d*))?$#i", $headers["host"][0], $matches)) {
+                if (!\preg_match(self::HOST_HEADER_REGEX, $headers["host"][0], $matches)) {
                     throw new ClientException($this->client, "Bad Request: invalid host header", HttpStatus::BAD_REQUEST);
                 }
 
@@ -317,7 +317,7 @@ final class Http1Driver extends AbstractHttpDriver
                             );
                         }
 
-                        if (!\preg_match("#^([A-Z\d._\-]+|\[[\d:]+]):([1-9]\d*)$#i", $target, $matches)) {
+                        if (!\preg_match(self::HOST_HEADER_REGEX, $target, $matches)) {
                             throw new ClientException(
                                 $this->client,
                                 "Bad Request: invalid connect target",

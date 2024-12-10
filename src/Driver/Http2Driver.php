@@ -967,7 +967,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         [':method' => $method, ':path' => $target, ':scheme' => $scheme, ':authority' => $host] = $pseudo;
         $query = null;
 
-        if (!\preg_match("#^([A-Z\d._\-]+|\[[\d:]+])(?::([1-9]\d*))?$#i", $host, $matches)) {
+        if (!\preg_match(self::HOST_HEADER_REGEX, $host, $matches)) {
             throw new Http2StreamException(
                 "Invalid authority (host) name",
                 $streamId,

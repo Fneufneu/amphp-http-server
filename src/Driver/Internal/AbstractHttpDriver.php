@@ -17,6 +17,8 @@ use Psr\Log\LoggerInterface as PsrLogger;
 /** @internal */
 abstract class AbstractHttpDriver implements HttpDriver
 {
+    protected const HOST_HEADER_REGEX = /** @lang RegExp */ '#^([A-Z\d._\-]+|\[[\d:]+])(?::([1-9]\d*))?$#i';
+
     private static ?TimeoutQueue $timeoutQueue = null;
 
     final protected static function getTimeoutQueue(): TimeoutQueue
