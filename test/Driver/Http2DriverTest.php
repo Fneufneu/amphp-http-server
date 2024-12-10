@@ -839,7 +839,7 @@ class Http2DriverTest extends HttpDriverTest
 
         $requestQueue->push(self::packFrame(\pack("N", 0), Http2Parser::RST_STREAM, Http2Parser::NO_FLAG, 1));
 
-        delay(0); // Invoke onDispose handler.
+        delay(0.1); // Invoke onDispose handler.
 
         self::assertTrue($invoked);
     }

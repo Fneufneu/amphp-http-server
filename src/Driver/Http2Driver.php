@@ -20,6 +20,7 @@ use Amp\Http\InvalidHeaderException;
 use Amp\Http\Server\ClientException;
 use Amp\Http\Server\Driver\Internal\AbstractHttpDriver;
 use Amp\Http\Server\Driver\Internal\Http2Stream;
+use Amp\Http\Server\Driver\Internal\StreamTimeoutTracker;
 use Amp\Http\Server\ErrorHandler;
 use Amp\Http\Server\Push;
 use Amp\Http\Server\Request;
@@ -66,6 +67,8 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
     private Client $client;
     private ReadableStream $readableStream;
     private WritableStream $writableStream;
+
+    private StreamTimeoutTracker $timeoutTracker;
 
     private int $serverWindow = self::DEFAULT_WINDOW_SIZE;
 
@@ -140,9 +143,12 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         $this->readableStream = $readableStream;
         $this->writableStream = $writableStream;
 
-        self::getTimeoutQueue()->insert($this->client, 0, fn () => $this->shutdown(
-            new ClientException($this->client, 'Shutting down connection due to inactivity'),
-        ), $this->streamTimeout);
+        $this->timeoutTracker = new StreamTimeoutTracker(
+            $this->client,
+            self::getTimeoutQueue(),
+            $this->connectionTimeout,
+            fn () => $this->shutdown(new ClientException($this->client, 'Shutting down connection due to inactivity')),
+        );
 
         $this->processClientInput();
     }
@@ -162,6 +168,13 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
         $this->client = $client;
         $this->writableStream = $writableStream;
+
+        $this->timeoutTracker = new StreamTimeoutTracker(
+            $this->client,
+            self::getTimeoutQueue(),
+            $this->connectionTimeout,
+            fn () => $this->shutdown(new ClientException($this->client, 'Shutting down connection due to inactivity')),
+        );
 
         if ($this->settings !== null) {
             // Upgraded connections automatically assume an initial stream with ID 1.
@@ -196,10 +209,6 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
         $this->readableStream = $readableStream;
 
-        self::getTimeoutQueue()->insert($this->client, 0, fn () => $this->shutdown(
-            new ClientException($this->client, 'Shutting down connection due to inactivity'),
-        ), $this->streamTimeout);
-
         $this->processClientInput($buffer);
     }
 
@@ -231,7 +240,6 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
             ));
         } finally {
             $parser->cancel();
-            self::getTimeoutQueue()->remove($this->client, 0);
         }
     }
 
@@ -646,10 +654,9 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         \assert(!isset($this->streams[$id]));
 
         if ($id & 1) {
-            self::getTimeoutQueue()->insert(
-                $this->client,
+            $this->timeoutTracker->insert(
                 $id,
-                fn () => $this->releaseStream(
+                fn (int $id) => $this->releaseStream(
                     $id,
                     new ClientException($this->client, "Closing stream due to inactivity"),
                 ),
@@ -672,7 +679,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         $this->streams[$id]->deferredCancellation->cancel();
 
         if ($id & 1) {
-            self::getTimeoutQueue()->remove($this->client, $id);
+            $this->timeoutTracker->remove($id);
         }
 
         ($this->bodyQueues[$id] ?? null)?->error(
@@ -692,10 +699,15 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
     private function updateTimeout(int $id): void
     {
-        self::getTimeoutQueue()->update($this->client, 0, $this->connectionTimeout);
-
         if ($id & 1) {
-            self::getTimeoutQueue()->update($this->client, $id, $this->streamTimeout);
+            $this->timeoutTracker->update($id, $this->streamTimeout);
+        }
+    }
+
+    private function suspendTimeout(int $id): void
+    {
+        if ($id & 1) {
+            $this->timeoutTracker->suspend($id);
         }
     }
 
@@ -786,7 +798,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
     {
         if (!$this->pinged) {
             // Ensure there are a few extra seconds for request after first ping.
-            self::getTimeoutQueue()->update($this->client, 0, 5);
+            $this->timeoutTracker->ping(5);
         }
 
         $this->pinged++;
@@ -899,8 +911,6 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         // Header frames can be received on previously opened streams (trailer headers).
         $this->remoteStreamId = \max($streamId, $this->remoteStreamId);
 
-        $this->updateTimeout($streamId);
-
         if (isset($this->trailerDeferreds[$streamId]) && $stream->state & Http2Stream::RESERVED) {
             if (!$streamEnded) {
                 throw new Http2ConnectionException(
@@ -932,11 +942,15 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
             unset($this->bodyQueues[$streamId], $this->trailerDeferreds[$streamId]);
 
+            $this->suspendTimeout($streamId);
+
             $queue->complete();
             $deferred->complete($headers);
 
             return;
         }
+
+        $this->updateTimeout($streamId);
 
         if ($stream->state & Http2Stream::RESERVED) {
             throw new Http2StreamException(

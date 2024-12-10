@@ -75,9 +75,17 @@ final class TimeoutQueue
     public function update(Client $client, int $streamId, int $timeout): void
     {
         $cacheId = $this->makeId($client, $streamId);
-        \assert(isset($this->callbacks[$cacheId]));
+        \assert(isset($this->callbacks[$cacheId], $this->streamNames[$client][$streamId]));
 
         $this->timeoutCache->update($cacheId, $this->now + $timeout);
+    }
+
+    public function suspend(Client $client, int $streamId): void
+    {
+        $cacheId = $this->makeId($client, $streamId);
+        \assert(isset($this->callbacks[$cacheId], $this->streamNames[$client][$streamId]));
+
+        $this->timeoutCache->clear($cacheId);
     }
 
     /**

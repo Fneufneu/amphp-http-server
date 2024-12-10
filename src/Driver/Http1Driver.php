@@ -110,7 +110,7 @@ final class Http1Driver extends AbstractHttpDriver
 
             do {
                 if ($this->http2driver) {
-                    $this->removeTimeout();
+                    $this->suspendTimeout();
                     $this->http2driver->handleClientWithBuffer($buffer, $this->readableStream);
                     return;
                 }
@@ -368,6 +368,8 @@ final class Http1Driver extends AbstractHttpDriver
                         ])
                     );
 
+                    $this->removeTimeout();
+
                     // Internal upgrade
                     $this->http2driver = new Http2Driver(
                         requestHandler: $this->requestHandler,
@@ -411,6 +413,8 @@ final class Http1Driver extends AbstractHttpDriver
 
                             continue;
                         }
+
+                        $this->suspendTimeout();
 
                         $this->currentBuffer = $buffer;
                         $this->handleRequest($request);
@@ -740,7 +744,7 @@ final class Http1Driver extends AbstractHttpDriver
                 $this->bodyQueue = null;
                 $queue->complete();
 
-                $this->updateTimeout();
+                $this->suspendTimeout();
 
                 if ($this->http2driver) {
                     continue;
@@ -800,6 +804,11 @@ final class Http1Driver extends AbstractHttpDriver
     private function updateTimeout(): void
     {
         self::getTimeoutQueue()->update($this->client, 0, $this->connectionTimeout);
+    }
+
+    private function suspendTimeout(): void
+    {
+        self::getTimeoutQueue()->suspend($this->client, 0);
     }
 
     private function removeTimeout(): void
