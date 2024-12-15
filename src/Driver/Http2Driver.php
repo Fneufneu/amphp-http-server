@@ -61,9 +61,6 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         "via" => true,
     ];
 
-    /** @var string 64-bit for ping. */
-    private string $counter = "aaaaaaaa";
-
     private Client $client;
     private ReadableStream $readableStream;
     private WritableStream $writableStream;
