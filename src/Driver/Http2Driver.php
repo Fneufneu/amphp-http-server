@@ -87,19 +87,19 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
     /** @var int Last used remote stream ID. */
     private int $remoteStreamId = 0;
 
-    /** @var Http2Stream[] */
+    /** @var array<int, Http2Stream> */
     private array $streams = [];
 
-    /** @var int[] Map of request hashes to stream IDs. */
-    private array $streamIdMap = [];
+    /** @var \WeakMap<Request, int> Map of Request objects to stream IDs. */
+    private \WeakMap $streamIdMap;
 
-    /** @var int[] Map of URLs pushed on this connection. */
+    /** @var array<string, int> Map of URLs pushed on this connection. */
     private array $pushCache = [];
 
-    /** @var DeferredFuture[] */
+    /** @var array<int, DeferredFuture> */
     private array $trailerDeferreds = [];
 
-    /** @var Queue[] */
+    /** @var array<int, Queue> */
     private array $bodyQueues = [];
 
     /** @var int Number of streams that may be opened. */
@@ -128,7 +128,10 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         $this->remainingStreams = $concurrentStreamLimit;
         $this->allowsPush = $pushEnabled;
 
-        $this->hpack = new HPack;
+        $this->hpack = new HPack();
+
+        /** @var \WeakMap<Request, int> */
+        $this->streamIdMap = new \WeakMap();
     }
 
     public function handleClient(
@@ -250,9 +253,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         /** @psalm-suppress RedundantPropertyInitializationCheck */
         \assert(isset($this->client), "The driver has not been setup");
 
-        $hash = \spl_object_hash($request);
-        $streamId = $this->streamIdMap[$hash] ?? 1; // Default ID of 1 for upgrade requests.
-        unset($this->streamIdMap[$hash]);
+        $streamId = $this->streamIdMap[$request] ?? 1; // Default ID of 1 for upgrade requests.
 
         if (!isset($this->streams[$streamId])) {
             return; // Client closed the stream or connection.
@@ -533,7 +534,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         // No data will be incoming on this stream.
         $stream = $this->createStream($id, 0, Http2Stream::RESERVED | Http2Stream::REMOTE_CLOSED);
 
-        $this->streamIdMap[\spl_object_hash($request)] = $id;
+        $this->streamIdMap[$request] = $id;
 
         $headers = [
             ":authority" => [$pushUri->getAuthority()],
@@ -1035,7 +1036,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
             $this->timeoutTracker->suspend($streamId);
 
-            $this->streamIdMap[\spl_object_hash($request)] = $streamId;
+            $this->streamIdMap[$request] = $streamId;
             $stream->pendingResponse = async($this->handleRequest(...), $request);
 
             return;
@@ -1111,7 +1112,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
             $trailers
         );
 
-        $this->streamIdMap[\spl_object_hash($request)] = $streamId;
+        $this->streamIdMap[$request] = $streamId;
         $stream->pendingResponse = async($this->handleRequest(...), $request);
     }
 
