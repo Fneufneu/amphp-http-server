@@ -1042,6 +1042,8 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
                 "2"
             );
 
+            $this->suspendTimeout($streamId);
+
             $this->streamIdMap[\spl_object_hash($request)] = $streamId;
             $stream->pendingResponse = async($this->handleRequest(...), $request);
 
