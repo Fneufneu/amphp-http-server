@@ -147,6 +147,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
             $this->client,
             self::getTimeoutQueue(),
             $this->connectionTimeout,
+            $this->streamTimeout,
             fn () => $this->shutdown(new ClientException($this->client, 'Shutting down connection due to inactivity')),
         );
 
@@ -173,6 +174,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
             $this->client,
             self::getTimeoutQueue(),
             $this->connectionTimeout,
+            $this->streamTimeout,
             fn () => $this->shutdown(new ClientException($this->client, 'Shutting down connection due to inactivity')),
         );
 
@@ -249,22 +251,24 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         \assert(isset($this->client), "The driver has not been setup");
 
         $hash = \spl_object_hash($request);
-        $id = $this->streamIdMap[$hash] ?? 1; // Default ID of 1 for upgrade requests.
+        $streamId = $this->streamIdMap[$hash] ?? 1; // Default ID of 1 for upgrade requests.
         unset($this->streamIdMap[$hash]);
 
-        if (!isset($this->streams[$id])) {
+        if (!isset($this->streams[$streamId])) {
             return; // Client closed the stream or connection.
         }
 
-        $this->updateTimeout($id);
+        if ($streamId & 1) {
+            $this->timeoutTracker->update($streamId);
+        }
 
-        $stream = $this->streams[$id]; // $this->streams[$id] may be unset in send().
+        $stream = $this->streams[$streamId]; // $this->streams[$streamId] may be unset in send().
         $deferred = new DeferredFuture;
         $stream->pendingWrite = $deferred->getFuture();
         $cancellation = $stream->deferredCancellation->getCancellation();
 
         try {
-            $this->send($id, $response, $request, $cancellation);
+            $this->send($streamId, $response, $request, $cancellation);
         } finally {
             $deferred->complete();
         }
@@ -563,15 +567,17 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
         $this->writeBufferedData($id);
     }
 
-    private function writeBufferedData(int $id): void
+    private function writeBufferedData(int $streamId): void
     {
-        \assert(isset($this->streams[$id]), "The stream was closed");
+        \assert(isset($this->streams[$streamId]), "The stream was closed");
 
-        $stream = $this->streams[$id];
+        $stream = $this->streams[$streamId];
         $delta = \min($this->clientWindow, $stream->clientWindow);
         $length = \strlen($stream->buffer);
 
-        $this->updateTimeout($id);
+        if ($streamId & 1) {
+            $this->timeoutTracker->update($streamId);
+        }
 
         if ($delta >= $length) {
             $this->clientWindow -= $length;
@@ -580,14 +586,14 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
                 $split = \str_split($stream->buffer, $this->maxFrameSize);
                 $stream->buffer = \array_pop($split);
                 foreach ($split as $part) {
-                    $this->writeFrame($part, Http2Parser::DATA, Http2Parser::NO_FLAG, $id);
+                    $this->writeFrame($part, Http2Parser::DATA, Http2Parser::NO_FLAG, $streamId);
                 }
             }
 
             if ($stream->state & Http2Stream::LOCAL_CLOSED) {
-                $this->writeFrame($stream->buffer, Http2Parser::DATA, Http2Parser::END_STREAM, $id);
+                $this->writeFrame($stream->buffer, Http2Parser::DATA, Http2Parser::END_STREAM, $streamId);
             } else {
-                $this->writeFrame($stream->buffer, Http2Parser::DATA, Http2Parser::NO_FLAG, $id);
+                $this->writeFrame($stream->buffer, Http2Parser::DATA, Http2Parser::NO_FLAG, $streamId);
             }
 
             $stream->clientWindow -= $length;
@@ -613,11 +619,11 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
                     \substr($data, $off, $this->maxFrameSize),
                     Http2Parser::DATA,
                     Http2Parser::NO_FLAG,
-                    $id
+                    $streamId
                 );
             }
 
-            $this->writeFrame(\substr($data, $off, $delta - $off), Http2Parser::DATA, Http2Parser::NO_FLAG, $id);
+            $this->writeFrame(\substr($data, $off, $delta - $off), Http2Parser::DATA, Http2Parser::NO_FLAG, $streamId);
 
             $stream->buffer = \substr($data, $delta);
         }
@@ -660,7 +666,6 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
                     $id,
                     new ClientException($this->client, "Closing stream due to inactivity"),
                 ),
-                $this->streamTimeout,
             );
         }
 
@@ -694,20 +699,6 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
         if ($id & 1) { // Client-initiated stream.
             $this->remainingStreams++;
-        }
-    }
-
-    private function updateTimeout(int $id): void
-    {
-        if ($id & 1) {
-            $this->timeoutTracker->update($id, $this->streamTimeout);
-        }
-    }
-
-    private function suspendTimeout(int $id): void
-    {
-        if ($id & 1) {
-            $this->timeoutTracker->suspend($id);
         }
     }
 
@@ -942,7 +933,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
             unset($this->bodyQueues[$streamId], $this->trailerDeferreds[$streamId]);
 
-            $this->suspendTimeout($streamId);
+            $this->timeoutTracker->suspend($streamId);
 
             $queue->complete();
             $deferred->complete($headers);
@@ -950,7 +941,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
             return;
         }
 
-        $this->updateTimeout($streamId);
+        $this->timeoutTracker->update($streamId);
 
         if ($stream->state & Http2Stream::RESERVED) {
             throw new Http2StreamException(
@@ -1042,7 +1033,7 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
                 "2"
             );
 
-            $this->suspendTimeout($streamId);
+            $this->timeoutTracker->suspend($streamId);
 
             $this->streamIdMap[\spl_object_hash($request)] = $streamId;
             $stream->pendingResponse = async($this->handleRequest(...), $request);
@@ -1127,7 +1118,10 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
     public function handleData(int $streamId, string $data): void
     {
         $length = \strlen($data);
-        $this->updateTimeout($streamId);
+
+        if ($streamId & 1) {
+            $this->timeoutTracker->update($streamId);
+        }
 
         if (!isset($this->streams[$streamId], $this->bodyQueues[$streamId], $this->trailerDeferreds[$streamId])) {
             if ($streamId > 0 && $streamId <= $this->remoteStreamId) {

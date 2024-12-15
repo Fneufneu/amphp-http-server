@@ -23,6 +23,7 @@ final class StreamTimeoutTracker
         private readonly Client $client,
         private readonly TimeoutQueue $timeoutQueue,
         private readonly int $connectionTimeout,
+        private readonly int $streamTimeout,
         \Closure $onConnectionTimeout,
     ) {
         $this->onStreamTimeout = weakClosure(function (Client $client, int $streamId): void {
@@ -55,32 +56,32 @@ final class StreamTimeoutTracker
         }
     }
 
-    public function insert(int $streamId, \Closure $onTimeout, int $timeout): void
+    public function insert(int $streamId, \Closure $onTimeout): void
     {
-        \assert($streamId > 0);
+        \assert($streamId > 0 && $streamId & 1);
 
-        $this->timeoutQueue->insert($this->client, $streamId, $this->onStreamTimeout, $timeout);
+        $this->timeoutQueue->insert($this->client, $streamId, $this->onStreamTimeout, $this->streamTimeout);
         $this->callbacks[$streamId] = $onTimeout;
         $this->timeoutQueue->suspend($this->client, 0);
     }
 
-    public function update(int $streamId, int $timeout): void
+    public function update(int $streamId): void
     {
-        \assert($streamId > 0);
+        \assert($streamId > 0 && $streamId & 1);
 
-        $this->timeoutQueue->update($this->client, $streamId, $timeout);
+        $this->timeoutQueue->update($this->client, $streamId, $this->streamTimeout);
     }
 
     public function suspend(int $streamId): void
     {
-        \assert($streamId > 0);
+        \assert($streamId > 0 && $streamId & 1);
 
         $this->timeoutQueue->suspend($this->client, $streamId);
     }
 
     public function remove(int $streamId): void
     {
-        \assert($streamId > 0);
+        \assert($streamId > 0 && $streamId & 1);
 
         $this->timeoutQueue->remove($this->client, $streamId);
         unset($this->callbacks[$streamId]);
