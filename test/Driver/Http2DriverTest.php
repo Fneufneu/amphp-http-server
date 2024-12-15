@@ -521,7 +521,6 @@ class Http2DriverTest extends HttpDriverTest
             self::markTestSkipped('Not supported with nghttp2, disable ffi for this test.');
         }
 
-        $this->initDriver();
         $request = async(fn () => $this->whenRequestIsReceived());
 
         $input = new Queue;
@@ -866,6 +865,46 @@ class Http2DriverTest extends HttpDriverTest
         $request = $this->whenRequestIsReceived();
 
         self::assertSame($value, $request->getHeader($header));
+    }
+
+    public function testTimeoutSuspendedDuringRequestHandler(): void
+    {
+        $requestHandler = new ClosureRequestHandler(function (): Response {
+            delay(2);
+            return new Response(HttpStatus::ACCEPTED, body: 'Hello World!');
+        });
+
+        $this->driver = new Http2Driver(
+            $requestHandler,
+            $this->createMock(ErrorHandler::class),
+            new NullLogger,
+            streamTimeout: 1,
+            connectionTimeout: 1,
+        );
+
+        $headers = [
+            ":authority" => ["localhost:8888"],
+            ":path" => ["/"],
+            ":scheme" => ["https"],
+            ":method" => ["GET"],
+        ];
+
+        $input = new Queue();
+        $this->givenInput(new ReadableIterableStream($input->iterate()));
+        $frames = $this->whenReceivingFrames();
+
+        $input->push(Http2Parser::PREFACE);
+        $input->push(self::packHeader($headers));
+
+        $frames->continue(); // Skip settings frame.
+
+        self::assertTrue($frames->continue());
+        $frame = $frames->getValue();
+        self::assertSame(Http2Parser::HEADERS, $frame['type']);
+        self::assertSame(Http2Parser::END_HEADERS, $frame['flags']);
+        self::assertSame(1, $frame['stream']);
+
+        $input->complete();
     }
 
     protected function givenPush(string $uri): void

@@ -1178,4 +1178,35 @@ class Http1DriverTest extends HttpDriverTest
 
         self::assertStringStartsWith("HTTP/1.1 101 Switching Protocols\r\n", $output->buffer());
     }
+
+    public function testTimeoutSuspendedDuringRequestHandler(): void
+    {
+        $requestHandler = new ClosureRequestHandler(function (): Response {
+            delay(2);
+            return new Response(HttpStatus::ACCEPTED, body: 'Hello World!');
+        });
+
+        $driver = new Http1Driver(
+            $requestHandler,
+            $this->createMock(ErrorHandler::class),
+            new NullLogger,
+            connectionTimeout: 1,
+        );
+
+        $client = $this->createClientMock();
+        $client->expects(self::never())
+            ->method('close');
+
+        $output = new WritableBuffer();
+
+        $driver->handleClient(
+            $client,
+            new ReadableBuffer("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+            $output,
+        );
+
+        $output->close();
+
+        self::assertStringStartsWith('HTTP/1.1 202', $output->buffer());
+    }
 }
