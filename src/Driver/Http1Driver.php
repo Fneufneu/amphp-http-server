@@ -100,9 +100,10 @@ final class Http1Driver extends AbstractHttpDriver
         $this->insertTimeout();
 
         $headerSizeLimit = $this->headerSizeLimit;
+        $cancellation = $this->deferredCancellation->getCancellation();
 
         try {
-            $buffer = $readableStream->read();
+            $buffer = $readableStream->read($cancellation);
             if ($buffer === null) {
                 $this->removeTimeout();
                 return;
@@ -141,7 +142,7 @@ final class Http1Driver extends AbstractHttpDriver
                         );
                     }
 
-                    $chunk = $readableStream->read();
+                    $chunk = $readableStream->read($cancellation);
                     if ($chunk === null) {
                         return;
                     }
@@ -413,7 +414,8 @@ final class Http1Driver extends AbstractHttpDriver
                         $this->suspendTimeout();
 
                         $this->currentBuffer = $buffer;
-                        $this->handleRequest($request);
+                        $this->pendingResponse = async($this->handleRequest(...), $request);
+                        $this->pendingResponse->await();
                         $this->pendingResponseCount--;
 
                         continue;
@@ -486,7 +488,7 @@ final class Http1Driver extends AbstractHttpDriver
                                 );
                             }
 
-                            $chunk = $this->readableStream->read();
+                            $chunk = $this->readableStream->read($cancellation);
                             if ($chunk === null) {
                                 return;
                             }
@@ -514,7 +516,7 @@ final class Http1Driver extends AbstractHttpDriver
 
                         if ($chunkLengthRemaining === 0) {
                             while (!isset($buffer[1])) {
-                                $chunk = $readableStream->read();
+                                $chunk = $readableStream->read($cancellation);
                                 if ($chunk === null) {
                                     return;
                                 }
@@ -546,7 +548,7 @@ final class Http1Driver extends AbstractHttpDriver
                                     );
                                 }
 
-                                $chunk = $this->readableStream->read();
+                                $chunk = $this->readableStream->read($cancellation);
                                 if ($chunk === null) {
                                     return;
                                 }
@@ -599,7 +601,7 @@ final class Http1Driver extends AbstractHttpDriver
                                         $remaining -= $bodyBufferSize;
                                     }
 
-                                    $body = $readableStream->read();
+                                    $body = $readableStream->read($cancellation);
                                     if ($body === null) {
                                         return;
                                     }
@@ -635,7 +637,7 @@ final class Http1Driver extends AbstractHttpDriver
                             $bufferLength = \strlen($buffer);
 
                             if (!$bufferLength) {
-                                $chunk = $readableStream->read();
+                                $chunk = $readableStream->read($cancellation);
                                 if ($chunk === null) {
                                     return;
                                 }
@@ -647,7 +649,7 @@ final class Http1Driver extends AbstractHttpDriver
                             // These first two (extreme) edge cases prevent errors where the packet boundary ends after
                             // the \r and before the \n at the end of a chunk.
                             if ($bufferLength === $chunkLengthRemaining || $bufferLength === $chunkLengthRemaining + 1) {
-                                $chunk = $readableStream->read();
+                                $chunk = $readableStream->read($cancellation);
                                 if ($chunk === null) {
                                     return;
                                 }
@@ -704,7 +706,7 @@ final class Http1Driver extends AbstractHttpDriver
                                 $bodySize += $bodyBufferSize;
                             }
 
-                            $chunk = $readableStream->read();
+                            $chunk = $readableStream->read($cancellation);
                             if ($chunk === null) {
                                 return;
                             }
@@ -756,6 +758,12 @@ final class Http1Driver extends AbstractHttpDriver
             }
         } catch (StreamException) {
             // Client disconnected, finally block will clean up.
+        } catch (CancelledException) {
+            // Server shutting down.
+            if ($this->bodyQueue === null || !$this->pendingResponseCount) {
+                // Send a service unavailable response only if another response has not already been sent.
+                $this->sendServiceUnavailableResponse($request ?? null)->await();
+            }
         } finally {
             $this->pendingResponse->finally(function (): void {
                 $this->removeTimeout();
@@ -1024,6 +1032,19 @@ final class Http1Driver extends AbstractHttpDriver
     }
 
     /**
+     * Creates a service unavailable response from the error handler and sends that response to the client.
+     *
+     * @return Future<void>
+     */
+    private function sendServiceUnavailableResponse(?Request $request): Future
+    {
+        $response = $this->errorHandler->handleError(HttpStatus::SERVICE_UNAVAILABLE, request: $request);
+        $response->setHeader("connection", "close");
+
+        return $this->lastWrite = async($this->send(...), $this->lastWrite, $response);
+    }
+
+    /**
      * Creates an error response from the error handler and sends that response to the client.
      *
      * @return Future<void>
@@ -1062,6 +1083,7 @@ final class Http1Driver extends AbstractHttpDriver
 
         $this->pendingResponse->await();
         $this->lastWrite?->await();
+        $this->deferredCancellation->cancel();
     }
 
     public function getApplicationLayerProtocols(): array

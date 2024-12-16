@@ -1209,4 +1209,40 @@ class Http1DriverTest extends HttpDriverTest
 
         self::assertStringStartsWith('HTTP/1.1 202', $output->buffer());
     }
+
+    public function testShutdownDuringRequestRead(): void
+    {
+        $driver = new Http1Driver(
+            new ClosureRequestHandler(fn () => self::fail('Request handler not expected to be called')),
+            $this->createMock(ErrorHandler::class),
+            new NullLogger,
+        );
+
+        $input = new Queue();
+        $input->pushAsync(
+            // Insufficient request headers
+            "POST /post HTTP/1.1\r\n" .
+            "Host: localhost\r\n" .
+            "Content-Length: 100\r\n"
+        );
+
+        $output = new WritableBuffer();
+
+        async(fn () => $driver->handleClient(
+            $this->createClientMock(),
+            new ReadableIterableStream($input->iterate()),
+            $output,
+        ));
+
+        delay(0.1); // Allow parser generator to run.
+
+        $driver->stop();
+
+        delay(0.1); // Give time for cancellation to be processed.
+
+        $input->complete();
+        $output->close();
+
+        self::assertStringStartsWith('HTTP/1.0 503', $output->buffer());
+    }
 }
