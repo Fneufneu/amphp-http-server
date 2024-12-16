@@ -274,8 +274,7 @@ final class Http1Driver extends AbstractHttpDriver
                             $target = \substr($target, 0, $position);
                         }
 
-                        /** @psalm-suppress DeprecatedMethod */
-                        $uri = Uri\Http::createFromComponents([
+                        $uri = Uri\Http::fromComponents([
                             "scheme" => $scheme,
                             "host" => $host,
                             "port" => $port,
@@ -283,15 +282,13 @@ final class Http1Driver extends AbstractHttpDriver
                             "query" => $query,
                         ]);
                     } elseif ($target === "*") { // asterisk-form
-                        /** @psalm-suppress DeprecatedMethod */
-                        $uri = Uri\Http::createFromComponents([
+                        $uri = Uri\Http::fromComponents([
                             "scheme" => $scheme,
                             "host" => $host,
                             "port" => $port,
                         ]);
                     } elseif (\preg_match("#^https?://#i", $target)) { // absolute-form
-                        /** @psalm-suppress DeprecatedMethod */
-                        $uri = Uri\Http::createFromString($target);
+                        $uri = Uri\Http::new($target);
 
                         if ($uri->getHost() !== $host || $uri->getPort() !== $port) {
                             throw new ClientException(
@@ -325,8 +322,7 @@ final class Http1Driver extends AbstractHttpDriver
                             );
                         }
 
-                        /** @psalm-suppress DeprecatedMethod */
-                        $uri = Uri\Http::createFromComponents([
+                        $uri = Uri\Http::fromComponents([
                             "host" => $matches[1],
                             "port" => (int) $matches[2],
                         ]);

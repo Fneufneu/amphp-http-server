@@ -51,7 +51,7 @@ class SocketClientTest extends AsyncTestCase
         [$address, $server] = $this->startServer(function (Request $req) {
             $this->assertEquals("GET", $req->getMethod());
             $this->assertEquals("/uri", $req->getUri()->getPath());
-            $query = Query::createFromUri($req->getUri());
+            $query = Query::fromUri($req->getUri());
             $this->assertEquals(
                 [["foo", "bar"], ["baz", "1"], ["baz", "2"]],
                 \iterator_to_array($query->getIterator())

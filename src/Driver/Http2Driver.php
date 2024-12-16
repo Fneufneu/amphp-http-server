@@ -996,15 +996,13 @@ final class Http2Driver extends AbstractHttpDriver implements Http2Processor
 
         try {
             if ($target === "*") {
-                /** @psalm-suppress DeprecatedMethod */
-                $uri = Uri\Http::createFromComponents([
+                $uri = Uri\Http::fromComponents([
                     "scheme" => $scheme,
                     "host" => $host,
                     "port" => $port,
                 ]);
             } else {
-                /** @psalm-suppress DeprecatedMethod */
-                $uri = Uri\Http::createFromComponents([
+                $uri = Uri\Http::fromComponents([
                     "scheme" => $scheme,
                     "host" => $host,
                     "port" => $port,

@@ -18,7 +18,7 @@ class ExceptionHandlerMiddlewareTest extends AsyncTestCase
 {
     private function setupAndInvokeMiddleware(ExceptionHandler $exceptionHandler, \Throwable $exception): Response
     {
-        $request = new Request($this->createMock(Client::class), 'GET', Http::createFromString('/'));
+        $request = new Request($this->createMock(Client::class), 'GET', Http::new('/'));
 
         $requestHandler = $this->createMock(RequestHandler::class);
         $requestHandler->expects(self::once())

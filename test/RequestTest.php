@@ -15,14 +15,14 @@ class RequestTest extends AsyncTestCase
     public function testGetClient(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'));
+        $request = new Request($client, 'GET', Http::new('/'));
         self::assertSame($client, $request->getClient());
     }
 
     public function testSetMethod(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'));
+        $request = new Request($client, 'GET', Http::new('/'));
         self::assertSame('GET', $request->getMethod());
         $request->setMethod('POST');
         self::assertSame('POST', $request->getMethod());
@@ -31,16 +31,16 @@ class RequestTest extends AsyncTestCase
     public function testSetUri(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'));
+        $request = new Request($client, 'GET', Http::new('/'));
         self::assertSame('/', (string) $request->getUri());
-        $request->setUri(Http::createFromString('/foobar'));
+        $request->setUri(Http::new('/foobar'));
         self::assertSame('/foobar', (string) $request->getUri());
     }
 
     public function testSetProtocolVersion(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'));
+        $request = new Request($client, 'GET', Http::new('/'));
         self::assertSame('1.1', $request->getProtocolVersion());
         $request->setProtocolVersion('1.0');
         self::assertSame('1.0', $request->getProtocolVersion());
@@ -49,7 +49,7 @@ class RequestTest extends AsyncTestCase
     public function testGetHeader(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'), [
+        $request = new Request($client, 'GET', Http::new('/'), [
             'foo' => 'bar',
         ]);
 
@@ -65,7 +65,7 @@ class RequestTest extends AsyncTestCase
     public function testAddHeader(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'), [
+        $request = new Request($client, 'GET', Http::new('/'), [
             'foo' => 'bar',
         ]);
 
@@ -81,7 +81,7 @@ class RequestTest extends AsyncTestCase
     public function testSetHeader(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'), [
+        $request = new Request($client, 'GET', Http::new('/'), [
             'foo' => 'bar',
         ]);
 
@@ -101,7 +101,7 @@ class RequestTest extends AsyncTestCase
     public function testGetAttribute(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'));
+        $request = new Request($client, 'GET', Http::new('/'));
 
         $request->setAttribute('foo', 'bar');
         self::assertSame('bar', $request->getAttribute('foo'));
@@ -124,7 +124,7 @@ class RequestTest extends AsyncTestCase
     public function testSetBody(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'POST', Http::createFromString('/'), [
+        $request = new Request($client, 'POST', Http::new('/'), [
             'content-length' => '0',
         ]);
 
@@ -140,7 +140,7 @@ class RequestTest extends AsyncTestCase
         $request->setBody(new ReadableBuffer('foo'));
         self::assertFalse($request->hasHeader('content-length'));
 
-        $request = new Request($client, 'GET', Http::createFromString('/'));
+        $request = new Request($client, 'GET', Http::new('/'));
         $request->setBody('');
         self::assertFalse($request->hasHeader('content-length'));
     }
@@ -148,7 +148,7 @@ class RequestTest extends AsyncTestCase
     public function testCookies(): void
     {
         $client = $this->createMock(Client::class);
-        $request = new Request($client, 'GET', Http::createFromString('/'), [
+        $request = new Request($client, 'GET', Http::new('/'), [
             'cookie' => (string) new RequestCookie('foo', 'bar'),
         ]);
 

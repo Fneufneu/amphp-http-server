@@ -17,7 +17,7 @@ class StackTest extends AsyncTestCase
 {
     public function testStackAppliesMiddlewaresInCorrectOrder(): void
     {
-        $request = new Request($this->createMock(Client::class), "GET", Uri\Http::createFromString("/foobar"));
+        $request = new Request($this->createMock(Client::class), "GET", Uri\Http::new("/foobar"));
 
         $stack = stackMiddleware(new ClosureRequestHandler(function (Request $request) {
             $response = new Response(HttpStatus::OK, [], "OK");

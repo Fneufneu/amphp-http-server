@@ -756,7 +756,7 @@ class Http1DriverTest extends HttpDriverTest
 
         self::assertSame($results[1], $request->getBody()->buffer());
 
-        $request = new Request($this->createClientMock(), "GET", Uri\Http::createFromString("/"));
+        $request = new Request($this->createClientMock(), "GET", Uri\Http::new("/"));
 
         delay(0.01); // Allow parser generator to continue.
 
@@ -764,7 +764,7 @@ class Http1DriverTest extends HttpDriverTest
 
         self::assertSame($results[0], $request->getBody()->buffer());
 
-        $request = new Request($this->createClientMock(), "POST", Uri\Http::createFromString("/"));
+        $request = new Request($this->createClientMock(), "POST", Uri\Http::new("/"));
 
         self::assertSame(3, $responses);
     }
